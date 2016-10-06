@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace limsbasic.net
+namespace LabObjects.LimsBasicNet
 {
     /// <summary>
-    /// LimsBasicNet - base class for limsbase.net clss library.
+    /// LimsBasicNetBase - base class for limsbase.net class library.
     /// </summary>
-    public abstract class LimsBasicNet : IDisposable
+    public abstract class LimsBasicNetBase : IDisposable
     {
         #region Private fields
         private StringBuilder _lastError;
@@ -20,7 +20,7 @@ namespace limsbasic.net
 
 
         #region Constructors
-        internal LimsBasicNet()
+        internal LimsBasicNetBase()
         {
             _lastError = new StringBuilder("No Error");
             _lastErrorDetail = new StringBuilder("");

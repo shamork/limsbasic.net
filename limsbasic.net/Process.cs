@@ -3,30 +3,31 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Security;
+using System.Security.Cryptography;
 using System.IO;
 using System.Diagnostics;
 
 
-namespace limsbasic.net
+namespace LabObjects.LimsBasicNet
 {
     /// <summary>
     /// Process Class
     /// <para>Wrapper class for the System.Diagnostics.Process class. This wrapper optimizes use of the .Net Process class for use within LIMS Basic.</para>
     /// <para>Property or method names of this class that match the System.Diagnostics.Process class provide access to the same type member of the wrapped Process object.</para>
     /// </summary>
-    public class Process : LimsBasicNet, IDisposable
+    public class Process : LimsBasicNetBase, IDisposable
     {
 
         #region private fields
-        private string _programOutput = "";
-        private int _exitCode;
+        //private string _programOutput = "";
         private DateTime? _processStartedOn;
         private DateTime? _processEndedOn;
         private int _runtime_ms;
         private int _totalProcessorTime_ms;
         private int _userProcessorTime_ms;
-        private bool _isRunning = false;
         private System.Diagnostics.Process _process;
+        private SecureString _securePwd = new SecureString();
         #endregion
 
         #region Constructors
@@ -94,7 +95,23 @@ namespace limsbasic.net
             get; set;
         }
         /// <summary>
-        /// Defines what type of window the process should run in. TODO: Check these Hidden=0, Minimized=1, Maximized=3, Normal=4
+        /// DidTimeout Property. Boolean Flag indicating wheteh rlast run process timedout.
+        /// </summary>
+        public bool DidTimeout
+        {
+            get; private set;
+        }
+        /// <summary>
+        /// Timeout Property in Milliseconds.
+        /// </summary>
+        /// <remarks>A value &lt;= 1 will default to five (5) minutes</remarks>
+        public int TimeoutMilliSeconds
+        {
+            get; set;
+        }
+        /// <summary>
+        /// Defines what type of window the process should run in. 
+        /// Normal=0, Hidden=1, Minimized=2, Maximized=3
         /// </summary>
         public ProcessWindowStyle WindowStyle
         {
@@ -102,6 +119,7 @@ namespace limsbasic.net
         }
         /// <summary>
         /// Wrapper property to Process.UseShellExecute.
+        /// Set to false when streaming I/O, Error
         /// </summary>
         public bool UseShellExecute
         {
@@ -123,29 +141,45 @@ namespace limsbasic.net
             get; set;
         }
 
-        /// <summary>
-        /// 
-        /// </summary>
-        public string UserPassword
-        {
-            get; set;
-        }
-
        
         /// <summary>
         /// The combined progam output from the Standard Out and Standard Error.  
         /// </summary>
         public string ProgramOutput
         {
-            get { return _programOutput; }
+            get; private set;
+        }
+        /// <summary>
+        /// Property: StandardOutput
+        /// Process Standard Output Property
+        /// </summary>
+        public string StandardOutput
+        {
+            get; private set;
+        }
+        /// <summary>
+        /// Proprty StandardError
+        /// </summary>
+        public string StandardError
+        {
+            get; private set;
         }
         /// <summary>
         /// The ExitCode for the process run.
         /// </summary>
         public int ExitCode
         {
-            get { return _exitCode; }
+            get; private set;
         }
+        
+        /// <summary>
+        /// IsRunning Property. Boolean Flag indicating whetehr a Process is running.
+        /// </summary>
+        public bool IsRunning
+        {
+            get; private set;
+        }
+        
         /// <summary>
         /// The date and time the process was started.
         /// </summary>
@@ -186,16 +220,19 @@ namespace limsbasic.net
         public bool RunProcess()
         {
             bool status = false;
+            DateTime processStartedOn;
             const string errMsgTitle = "Unable to Run Process";
+            int timeout = 0;
+            TimeSpan tick_ms;
 
-            if (_isRunning)
+            if (this.IsRunning)
             {
                 SetLastError(string.Format("{0}: {1}: {2}", errMsgTitle, "Process is already running", this._process.ProcessName));
                 status = false;
             }
             else
             {
-                _programOutput = "";
+                this.ProgramOutput = "";
                 ResetLastError();
                 try
                 {
@@ -204,27 +241,63 @@ namespace limsbasic.net
                     ProcessStartInfo si = new ProcessStartInfo()
                     {
                         FileName = FileName,
-                        Arguments = Arguments.Length > 0 ? Arguments : "",
-                        WorkingDirectory = WorkingDirectory.Length > 0 ? WorkingDirectory : "",
                         CreateNoWindow = true,
-                        UseShellExecute = false,
+                        UseShellExecute = false,        // must be false to stream I/O & error
                         WindowStyle = this.WindowStyle,
                         RedirectStandardOutput = true,
                         RedirectStandardError = true,
                         ErrorDialog = false
                     };
+                    if (Arguments != null )
+                    {
+                        if ( Arguments.Length > 0 )
+                            si.Arguments = this.Arguments;
+                    }
+                    if (WorkingDirectory != null)
+                    {
+                        if (WorkingDirectory.Length > 0 )
+                            si.WorkingDirectory = this.WorkingDirectory;
+                    }
+
+                    if (_securePwd.Length > 0 && UserName.Length > 0 && UserDomain.Length > 0)
+                    {
+                        si.UserName = UserName;
+                        si.Domain = UserDomain;
+                        si.Password = _securePwd;
+                    }
+
                     //System.Collections.Specialized.StringDictionary env = si.EnvironmentVariables;
                     _process.StartInfo = si;
+                    if (this.TimeoutMilliSeconds <=  0)
+                    {
+                        timeout = (5 * 60 * 1000);
+                    }
+                    else
+                    {
+                        timeout = this.TimeoutMilliSeconds;
+                    }
+                    processStartedOn = DateTime.Now;
+                    DidTimeout = false;
                     status = _process.Start();
-                    _isRunning = true;
+                    this.IsRunning = true;
                     while (!_process.HasExited)
-                        ;
-                    _exitCode = _process.ExitCode;
-                    var so = _process.StandardOutput.ReadToEnd();
-                    var se = _process.StandardError.ReadToEnd();
-                    _programOutput = so.Length != 0 ? so :
-                                        se.Length != 0 ? se :
-                                            _exitCode == 0 ? "" : "Unreported Error Occurred";
+                    {
+                        
+                        tick_ms = DateTime.Now.Subtract(processStartedOn);
+                        if (tick_ms.TotalMilliseconds > timeout)
+                        {
+                            _process.Kill();
+                            DidTimeout = true;
+                            SetLastError(string.Format("Process timed out @ {0} millseconds", timeout.ToString()));
+                        }
+                    }
+                        
+                    this.ExitCode = _process.ExitCode;
+                    this.StandardOutput = _process.StandardOutput.ReadToEnd();
+                    this.StandardError = _process.StandardError.ReadToEnd();
+                    this.ProgramOutput = this.StandardOutput.Length != 0 ? this.StandardOutput :
+                                        this.StandardError.Length != 0 ? this.StandardError :
+                                            this.ExitCode == 0 ? "" : "Unreported Error Occurred";
 
                     _runtime_ms = CalcRunTime(_process.StartTime, _process.ExitTime);
                     _processStartedOn = _process.StartTime;
@@ -232,7 +305,7 @@ namespace limsbasic.net
                     _totalProcessorTime_ms = _process.TotalProcessorTime.Milliseconds;
                     _userProcessorTime_ms = _process.UserProcessorTime.Milliseconds;
                     _process.Close();
-                    _isRunning = false;
+                    this.IsRunning = false;
                 }
                 catch (Exception ex)
                 {
@@ -242,6 +315,57 @@ namespace limsbasic.net
 
             return status;
         }
+
+        /// <summary>
+        /// Sets or Clears the internal secure string used for the password. 
+        /// If an Empty String is passed ("") the secure password is cleared. If a none-zero length string is passed then the password is set.
+        /// The Password will only be used by a process if the User Name and Domain is specified and it is not an Empty or null string (i.e.,Length &gt; 0)
+        /// it is recommend that the working directory also be specified else the working directory will be %SYSTEMROOT%\system32
+        /// </summary>
+        /// <seealso cref="https://msdn.microsoft.com/en-us/library/system.diagnostics.processstartinfo.password(v=vs.110).aspx"/>
+        /// <param name="pwd">Process Password</param>
+        /// <returns>true if password is set or cleared otherwise false</returns>
+        public bool SetPassword(string pwd)
+        {
+            bool status = false;
+            try
+            {
+                if (pwd == String.Empty && _securePwd.Length > 0)
+                {
+                    _securePwd.Clear();
+                    status = true;
+                }
+                else if (pwd.Length > 0)
+                {
+                    if (_securePwd.Length > 0)
+                        _securePwd.Clear();
+
+                    for (int i = 0; i < pwd.Length; i++)
+                        _securePwd.AppendChar(pwd.ElementAt<char>(i));
+
+                    status = true;
+                }
+            }
+            catch (CryptographicException ex)
+            {
+                SetLastError(string.Format("Crytopgraphic Exception: {0}", ex.Message), ex.InnerException);
+            }
+            catch(InvalidOperationException ex)
+            {
+                SetLastError(string.Format("Secure String is Read Only: {0}", ex.Message));
+            }
+            catch (ArgumentOutOfRangeException ex)
+            {
+                SetLastError(string.Format("String is too long (i.e., > 65,536 characters): {0}", ex.Message));
+
+            }
+            catch (Exception ex)
+            {
+                SetLastError(ex.Message, ex.InnerException);
+            }
+            return status;
+        }
+        
         #endregion
 
 
@@ -252,7 +376,11 @@ namespace limsbasic.net
         private void InitProcess()
         {
             this.WindowStyle = ProcessWindowStyle.Hidden;
-            _isRunning = false;
+            this.IsRunning = false;
+            this.ProgramOutput = "";
+            this.StandardError = "";
+            this.StandardOutput = "";
+            this.TimeoutMilliSeconds = (5 * 60 * 1000);       // (5 min * 60 s/min * 1000 ms/s)
             InitProcessMetrics();
         }
         /// <summary>
@@ -260,16 +388,18 @@ namespace limsbasic.net
         /// </summary>
         private void ResetProcess()
         {
-            if (!_isRunning)
+            if (!this.IsRunning)
             {
                 InitProcessMetrics();
             }
+            this.DidTimeout = false;
         }
         /// <summary>
         /// Private helper function to reset the metric counters for a process. 
         /// </summary>
         private void InitProcessMetrics()
         {
+            this.DidTimeout = false;
             _runtime_ms = 0;
             _userProcessorTime_ms = 0;
             _totalProcessorTime_ms = 0;
@@ -345,6 +475,12 @@ namespace limsbasic.net
                 {
                     if (_process != null)
                     {
+                        if (IsRunning)
+                        {
+                            _process.Kill();
+                            IsRunning = false;
+                        }
+
                         _process.Close();
                         _process.Dispose();
                     }

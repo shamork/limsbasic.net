@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+#if NET_VER_45
 using System.Threading.Tasks;
+#endif
 
 namespace LabObjects.LimsBasicNet
 {
@@ -12,20 +14,15 @@ namespace LabObjects.LimsBasicNet
     public abstract class LimsBasicNetBase : IDisposable
     {
         #region Private fields
-        private StringBuilder _lastError;
-        private StringBuilder _lastErrorDetail;
+        private StringBuilder _lastError = new StringBuilder("No Error");
+        private StringBuilder _lastErrorDetail = new StringBuilder("");
         private bool _isDisposed = false;
         #endregion
 
 
 
         #region Constructors
-        internal LimsBasicNetBase()
-        {
-            _lastError = new StringBuilder("No Error");
-            _lastErrorDetail = new StringBuilder("");
-            ResetLastError();
-        }
+        internal LimsBasicNetBase() { }
         #endregion
 
         #region Public Properties
@@ -52,7 +49,11 @@ namespace LabObjects.LimsBasicNet
         /// <param name="errMsg">The message to set as the LastError property.</param>
         protected void SetLastError(string errMsg)
         {
+        #if NET_VER_35 && !NET_VER_40
+            _lastError.Length = 0;
+        #else
             _lastError.Clear();
+        #endif
             _lastError.AppendFormat("{0}", errMsg);
         }
         /// <summary>
@@ -62,9 +63,14 @@ namespace LabObjects.LimsBasicNet
         /// <param name="errDetails">The message (string) containing the details to set as the LastErrorDetail property.</param>
         protected void SetLastError(string errMsg, string errDetails)
         {
+        #if NET_VER_35 && !NET_VER_40
+            _lastError.Length = 0;
+            _lastErrorDetail.Length = 0;
+        #else
             _lastError.Clear();
-            _lastError.AppendFormat("{0}", errMsg);
             _lastErrorDetail.Clear();
+        #endif
+            _lastError.AppendFormat("{0}", errMsg);
             if (errDetails.Length > 0)
                 _lastErrorDetail.AppendFormat("{0}", errDetails);
         }
@@ -75,9 +81,14 @@ namespace LabObjects.LimsBasicNet
         /// <param name="innerException">The exception that will be use to set the LastErrorDetail property.</param>
         protected void SetLastError(string errMsg, Exception innerException)
         {
+        #if NET_VER_35 && !NET_VER_40
+            _lastError.Length = 0;
+            _lastErrorDetail.Length = 0;
+        #else
             _lastError.Clear();
-            _lastError.AppendFormat("{0}", errMsg);
             _lastErrorDetail.Clear();
+        #endif
+            _lastError.AppendFormat("{0}", errMsg);
             if (innerException != null)
                 _lastErrorDetail.AppendFormat("{0}\r\n{1}", innerException.Message, innerException.StackTrace);
         }
@@ -86,9 +97,15 @@ namespace LabObjects.LimsBasicNet
         /// </summary>
         protected void ResetLastError()
         {
+        #if NET_VER_35 && !NET_VER_40
+            _lastError.Length = 0;
+            _lastErrorDetail.Length = 0;
+        #else
             _lastError.Clear();
-            _lastError.AppendFormat("No Error");
             _lastErrorDetail.Clear();
+        #endif
+            _lastError.AppendFormat("No Error");
+
         }
         #endregion
 
@@ -120,8 +137,13 @@ namespace LabObjects.LimsBasicNet
                 if (disposing)
                 {
                     // free resources if needed
-                    _lastError.Clear();
-                    _lastErrorDetail.Clear();
+                    #if NET_VER_35 && !NET_VER_40
+                        _lastError.Length = 0;
+                        _lastErrorDetail.Length = 0;
+                    #else
+                        _lastError.Clear();
+                        _lastErrorDetail.Clear();
+                    #endif
                 }
             }
             _isDisposed = true;

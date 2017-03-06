@@ -2,26 +2,28 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+#if NET_VER_45
 using System.Threading.Tasks;
+#endif
 using System.Xml;
 using System.Xml.Schema;
 
 namespace LabObjects.LimsBasicNet
 {
     /// <summary>
-    /// 
+    /// XmlDoc Class - Wrapper class for XmlDocument. Provides support for XML Schema Validation from 
+    /// scripting languages that onterface with the .Net Framework but don't support events.
     /// </summary>
+    /// <remarks>https://msdn.microsoft.com/en-us/library/aa468565.aspx</remarks>
     public class XmlDoc : LimsBasicNetBase, IDisposable
     {
         #region private fields
         //private bool _isDisposed = false;
-        private System.Xml.XmlDocument _xml;
-        //private System.Xml.Schema.XmlSchemaSet _schemas;
-        private string _validationMsgs;
-
+        private System.Xml.XmlDocument _xml = new XmlDocument();
+        //private System.Xml.Schema.XmlSchemaSet _schemas;        
+        private StringBuilder _validationMsgs = new StringBuilder();
         #endregion
 
-        //delegate ValidationEventHandler DocValidationHandler();
 
         #region Constructors
         /// <summary>
@@ -29,7 +31,7 @@ namespace LabObjects.LimsBasicNet
         /// </summary>
         public XmlDoc()
         {
-            InitData();
+
         }
 
         //public XmlDoc(string xmlFragmentOrFileName)
@@ -91,6 +93,8 @@ namespace LabObjects.LimsBasicNet
         {
             return _xml;
         }
+
+#if DEBUG
         /// <summary>
         /// Method to validate the current xnl document against one or more schemas
         /// </summary>
@@ -100,14 +104,19 @@ namespace LabObjects.LimsBasicNet
             bool status = false;
             try
             {
-                _validationMsgs = "";
                 if (_xml.Schemas.Count == 0)
-                {
+                    throw new Exception("No Schemas Defined");
 
-                }
+                if (_validationMsgs.Length > 0)
+                    #if NET_VER_35 && !NET_VER_40
+                        _validationMsgs.Length = 0;
+                    #else
+                        _validationMsgs.Clear();
+                    #endif
+
                 ValidationEventHandler eventHandler = new ValidationEventHandler(DocValidationHandler);
                 _xml.Validate(eventHandler);
-                status = true;
+                status = _validationMsgs.Length == 0 ? true : false;
             }
             catch (XmlSchemaValidationException ex)
             {
@@ -168,16 +177,63 @@ namespace LabObjects.LimsBasicNet
             }
             return status;
         }
-        #endregion
+
+        /// <summary>
+        /// XPathToArray
+        /// </summary>
+        /// <param name="xpath"></param>
+        /// <param name="nodeNames"></param>
+        /// <returns></returns>
+        public string[,] XPathToArray(string xpath, string[] nodeNames)
+        {
+            string[,] nodeArray = null;
+            string[] namesArray;
+            int numCols;
+            try
+            {
+                numCols = nodeNames.Length;
+                XmlNodeList nodeList = _xml.SelectNodes(xpath);
+                if (numCols == 0)
+                    throw new Exception("Node Names not defined");
+                else if (numCols == 1 && nodeNames[0] == "*")
+                {
+                    // get #nodes
+                    numCols = nodeList[0].ChildNodes.Count;
+                    namesArray = new string[numCols];
+                }
+                else
+                {
+                    namesArray = new string[numCols];
+                    nodeNames.CopyTo(namesArray, 0);
+                }
+                nodeArray = new string[nodeList.Count,nodeNames.Length];
+                for (int row=0; row < nodeList.Count; row++)
+                {
+                    XmlNode node = nodeList[row];
+                    for (int col=0; col < numCols; col++)
+                    {
+                        string nodeName = namesArray[col];
+                        nodeArray[row, col] = node.SelectSingleNode(nodeName).Value.ToString();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                nodeArray = new string[1, 1];
+                nodeArray[1, 1] = "ERROR";
+                SetLastError(ex.Message, ex.InnerException);
+            }
+            finally
+            {
+
+            }
+            return nodeArray;
+        }
+#endif
+
+#endregion
 
         #region Private Methods
-        /// <summary>
-        /// Helper method to initlize the object
-        /// </summary>
-        private void InitData()
-        {
-            _xml = new XmlDocument();
-        }
         /// <summary>
         /// Method to load a XML file
         /// </summary>
@@ -256,12 +312,13 @@ namespace LabObjects.LimsBasicNet
             switch (e.Severity)
             {
                 case XmlSeverityType.Error:
-                    //_validationMsgs += "Error: " + e.Message + "\r\n";
+                    _validationMsgs.AppendFormat("Error: {0}\r\n", e.Message);
                     break;
                 case XmlSeverityType.Warning:
-                    //_validationMsgs += "Warning: " + e.Message + "\r\n";
+                    _validationMsgs.AppendFormat("Warning: {0}\r\n", e.Message);
                     break;
                 default:
+                    _validationMsgs.AppendFormat("Information: {0}\r\n", e.Message);
                     break;
             }
         }
